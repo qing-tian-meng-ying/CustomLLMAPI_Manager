@@ -8,8 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PageShell } from '@/components/page-shell';
+import { useCopy } from '@/hooks/use-copy';
 import {
 	Play,
 	Trash2,
@@ -18,11 +21,13 @@ import {
 	Clock,
 	Copy,
 	Download,
-	Plus,
+	Sparkles,
 	User,
 	Bot,
-	Settings
+	Settings,
+	Key as KeyIcon,
 } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 interface Message {
@@ -34,7 +39,7 @@ interface ApiKey {
 	id: string;
 	name: string;
 	provider: string;
-	model: string;
+	models: string[];
 	is_active: boolean;
 }
 
@@ -42,13 +47,7 @@ interface ApiKeyOption {
 	value: string;
 	label: string;
 	provider: string;
-	model: string;
-}
-
-interface StreamChunk {
-	id: string;
-	delta: string;
-	done: boolean;
+	models: string[];
 }
 
 export default function TestPage() {
@@ -59,6 +58,7 @@ export default function TestPage() {
 	const [streamOutput, setStreamOutput] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [apiKeys, setApiKeys] = useState<ApiKeyOption[]>([]);
+	const [keysLoading, setKeysLoading] = useState(true);
 	const [selectedKey, setSelectedKey] = useState<string>('');
 	const [model, setModel] = useState('');
 	const [temperature, setTemperature] = useState(0.7);
@@ -68,6 +68,8 @@ export default function TestPage() {
 	const [error, setError] = useState<string | null>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const outputRef = useRef<HTMLPreElement>(null);
+
+	const { copy: copyOutput } = useCopy();
 
 	useEffect(() => {
 		fetchApiKeys();
@@ -91,18 +93,20 @@ export default function TestPage() {
 				const keys = (data.data || []).filter((k: ApiKey) => k.is_active) as ApiKey[];
 				const options: ApiKeyOption[] = keys.map((k) => ({
 					value: k.id,
-					label: `${k.name} (${k.model})`,
+					label: `${k.name} (${k.models.length} 个模型)`,
 					provider: k.provider,
-					model: k.model,
+					models: k.models,
 				}));
 				setApiKeys(options);
 				if (options.length > 0 && !selectedKey) {
 					setSelectedKey(options[0].value);
-					setModel(options[0].model);
+					setModel(options[0].models[0] || '');
 				}
 			}
 		} catch (error) {
 			console.error('获取 API Keys 失败:', error);
+		} finally {
+			setKeysLoading(false);
 		}
 	};
 
@@ -110,9 +114,13 @@ export default function TestPage() {
 		setSelectedKey(keyId);
 		const key = apiKeys.find((k) => k.value === keyId);
 		if (key) {
-			setModel(key.model);
+			// 切换 key 时，模型默认设为该 key 的第一个模型
+			setModel(key.models[0] || '');
 		}
 	};
+
+	// 当前选中 key 的模型列表，用于模型下拉
+	const currentKeyModels = apiKeys.find((k) => k.value === selectedKey)?.models ?? [];
 
 	const handleSend = async () => {
 		if (!input.trim()) return;
@@ -148,7 +156,7 @@ export default function TestPage() {
 	const handleStreamRequest = async (allMessages: Message[], startTime: number) => {
 		try {
 			const selectedKeyData = apiKeys.find((k) => k.value === selectedKey);
-			
+
 			const res = await fetch('/api/v1/chat/completions', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -224,7 +232,7 @@ export default function TestPage() {
 	const handleNormalRequest = async (allMessages: Message[], startTime: number) => {
 		try {
 			const selectedKeyData = apiKeys.find((k) => k.value === selectedKey);
-			
+
 			const res = await fetch('/api/v1/chat/completions', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -279,16 +287,11 @@ export default function TestPage() {
 		setStats(null);
 	};
 
-	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
-		toast.success('已复制到剪贴板');
-	};
-
 	const downloadConversation = () => {
 		const content = messages
 			.map((m) => `${m.role.toUpperCase()}:\n${m.content}\n`)
 			.join('\n---\n\n');
-		
+
 		const blob = new Blob([content], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
@@ -298,271 +301,334 @@ export default function TestPage() {
 		URL.revokeObjectURL(url);
 	};
 
-	const addSystemPrompt = () => {
+	// 填充示例 system prompt（原 addSystemPrompt，命名误导，改名为 fillExamplePrompt）
+	const fillExamplePrompt = () => {
 		setSystemPrompt('你是一个有帮助的AI助手。');
 	};
 
-	return (
-		<div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-			<div className="container mx-auto px-4 py-8">
-				{/* Header */}
-				<div className="flex items-center justify-between mb-6">
-					<div className="flex items-center gap-3">
-						<div className="p-2 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl">
-							<Play className="w-6 h-6 text-white" />
-						</div>
-						<div>
-							<h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-								测试接口
-							</h1>
-							<p className="text-sm text-slate-500 dark:text-slate-400">
-								在线测试 AI API 调用
-							</p>
-						</div>
-					</div>
-					<div className="flex gap-2">
-						<Button variant="outline" onClick={downloadConversation} disabled={messages.length === 0}>
-							<Download className="w-4 h-4 mr-2" />
-							导出对话
-						</Button>
-						<Button variant="outline" onClick={clearMessages} disabled={messages.length === 0}>
-							<Trash2 className="w-4 h-4 mr-2" />
-							清空
-						</Button>
-					</div>
-				</div>
+	const noKeys = !keysLoading && apiKeys.length === 0;
 
-				<div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-					{/* Settings Panel */}
-					<div className="lg:col-span-1">
-						<Card className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-0 shadow-lg sticky top-6">
-							<CardHeader className="pb-4">
-								<CardTitle className="text-lg">参数设置</CardTitle>
-							</CardHeader>
-							<CardContent className="space-y-4">
-								<div className="space-y-2">
-									<Label>API Key</Label>
-									<Select value={selectedKey} onValueChange={handleKeyChange}>
-										<SelectTrigger>
-											<SelectValue placeholder="选择 API Key" />
-										</SelectTrigger>
-										<SelectContent>
-											{apiKeys.length === 0 ? (
-												<div className="p-2 text-sm text-slate-500">暂无 API Key</div>
-											) : (
-												apiKeys.map((k) => (
+	return (
+		<PageShell
+			title="测试接口"
+			subtitle="在线测试 AI API 调用"
+			icon={Play}
+			actions={
+				<>
+					<Button
+						variant="outline"
+						onClick={downloadConversation}
+						disabled={messages.length === 0}
+					>
+						<Download className="mr-2 h-4 w-4" />
+						导出对话
+					</Button>
+					<Button variant="outline" onClick={clearMessages} disabled={messages.length === 0}>
+						<Trash2 className="mr-2 h-4 w-4" />
+						清空
+					</Button>
+				</>
+			}
+		>
+			<div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+				{/* Settings Panel */}
+				<div className="lg:col-span-1">
+					<Card className="sticky top-20">
+						<CardHeader className="pb-4">
+							<CardTitle className="text-lg">参数设置</CardTitle>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{keysLoading ? (
+								<div className="space-y-3">
+									<Skeleton className="h-9 w-full" />
+									<Skeleton className="h-9 w-full" />
+								</div>
+							) : noKeys ? (
+								<div className="rounded-lg border border-dashed p-4 text-center">
+									<KeyIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+									<p className="mb-3 text-sm text-muted-foreground">暂无可用 API Key</p>
+									<Link href="/keys">
+										<Button size="sm" variant="outline" className="w-full">
+											去添加 API Key
+										</Button>
+									</Link>
+								</div>
+							) : (
+								<>
+									<div className="space-y-2">
+										<Label>API Key</Label>
+										<Select value={selectedKey} onValueChange={handleKeyChange}>
+											<SelectTrigger>
+												<SelectValue placeholder="选择 API Key" />
+											</SelectTrigger>
+											<SelectContent>
+												{apiKeys.map((k) => (
 													<SelectItem key={k.value} value={k.value}>
 														<div className="flex flex-col">
 															<span>{k.label}</span>
-															<span className="text-xs text-slate-400">{k.provider}</span>
+															<span className="text-xs text-muted-foreground">{k.provider}</span>
 														</div>
 													</SelectItem>
-												))
-											)}
-										</SelectContent>
-									</Select>
-								</div>
+												))}
+											</SelectContent>
+										</Select>
+									</div>
 
 								<div className="space-y-2">
 									<Label>模型</Label>
-									<Input
-										value={model}
-										onChange={(e) => setModel(e.target.value)}
-										placeholder="gpt-4o"
-									/>
+									{currentKeyModels.length > 0 ? (
+										<Select value={model} onValueChange={setModel}>
+											<SelectTrigger>
+												<SelectValue placeholder="选择模型" />
+											</SelectTrigger>
+											<SelectContent>
+												{currentKeyModels.map((m) => (
+													<SelectItem key={m} value={m}>
+														<span className="font-mono text-xs">{m}</span>
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									) : (
+										<Input
+											value={model}
+											onChange={(e) => setModel(e.target.value)}
+											placeholder="该 Key 未配置模型，手动输入"
+										/>
+									)}
 								</div>
 
-								<div className="space-y-2">
-									<Label>Temperature: {temperature}</Label>
-									<Input
-										type="range"
-										min="0"
-										max="2"
-										step="0.1"
-										value={temperature}
-										onChange={(e) => setTemperature(parseFloat(e.target.value))}
-										className="w-full"
-									/>
-								</div>
+									<div className="space-y-2">
+										<div className="flex items-center justify-between">
+											<Label>Temperature</Label>
+											<span className="font-mono text-sm text-primary tabular-nums">
+												{temperature.toFixed(1)}
+											</span>
+										</div>
+										<Slider
+											value={[temperature]}
+											min={0}
+											max={2}
+											step={0.1}
+											onValueChange={(v) => setTemperature(v[0])}
+										/>
+										<div className="flex justify-between text-xs text-muted-foreground">
+											<span>0</span>
+											<span>2</span>
+										</div>
+									</div>
 
-								<div className="space-y-2">
-									<Label>Max Tokens: {maxTokens}</Label>
-									<Input
-										type="range"
-										min="100"
-										max="8192"
-										step="100"
-										value={maxTokens}
-										onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-										className="w-full"
-									/>
-								</div>
+									<div className="space-y-2">
+										<div className="flex items-center justify-between">
+											<Label>Max Tokens</Label>
+											<span className="font-mono text-sm text-primary tabular-nums">
+												{maxTokens}
+											</span>
+										</div>
+										<Slider
+											value={[maxTokens]}
+											min={100}
+											max={8192}
+											step={100}
+											onValueChange={(v) => setMaxTokens(v[0])}
+										/>
+										<div className="flex justify-between text-xs text-muted-foreground">
+											<span>100</span>
+											<span>8192</span>
+										</div>
+									</div>
 
-								<div className="flex items-center justify-between">
-									<Label htmlFor="stream">流式输出</Label>
-									<Switch
-										id="stream"
-										checked={streamEnabled}
-										onCheckedChange={setStreamEnabled}
-									/>
-								</div>
-
-								<div className="space-y-2">
 									<div className="flex items-center justify-between">
-										<Label>System Prompt</Label>
-										<Button variant="ghost" size="sm" onClick={addSystemPrompt}>
-											<Plus className="w-4 h-4" />
-										</Button>
+										<Label htmlFor="stream">流式输出</Label>
+										<Switch
+											id="stream"
+											checked={streamEnabled}
+											onCheckedChange={setStreamEnabled}
+										/>
 									</div>
-									<Textarea
-										value={systemPrompt}
-										onChange={(e) => setSystemPrompt(e.target.value)}
-										placeholder="可选的系统提示词..."
-										rows={4}
-									/>
+
+									<div className="space-y-2">
+										<div className="flex items-center justify-between">
+											<Label>System Prompt</Label>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={fillExamplePrompt}
+												aria-label="填充示例"
+											>
+												<Sparkles className="h-4 w-4" />
+											</Button>
+										</div>
+										<Textarea
+											value={systemPrompt}
+											onChange={(e) => setSystemPrompt(e.target.value)}
+											placeholder="可选的系统提示词..."
+											rows={4}
+										/>
+									</div>
+								</>
+							)}
+						</CardContent>
+					</Card>
+				</div>
+
+				{/* Chat Panel */}
+				<div className="lg:col-span-3">
+					<Card className="flex h-[calc(100dvh-200px)] flex-col">
+						{/* Messages */}
+						<div className="flex-1 space-y-4 overflow-y-auto p-4">
+							{messages.length === 0 && !streaming && (
+								<div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+									{noKeys ? (
+										<>
+											<KeyIcon className="mb-4 h-16 w-16 text-muted-foreground/40" />
+											<p className="mb-2 text-lg">还没有可用的 API Key</p>
+											<p className="mb-4 text-sm">添加 Key 后即可开始测试</p>
+											<Link href="/keys">
+												<Button variant="outline">
+													<KeyIcon className="mr-2 h-4 w-4" />
+													去添加 API Key
+												</Button>
+											</Link>
+										</>
+									) : (
+										<>
+											<Bot className="mb-4 h-16 w-16 text-muted-foreground/40" />
+											<p className="mb-2 text-lg">开始对话</p>
+											<p className="text-sm">输入消息开始测试 API</p>
+										</>
+									)}
 								</div>
-							</CardContent>
-						</Card>
-					</div>
+							)}
 
-					{/* Chat Panel */}
-					<div className="lg:col-span-3">
-						<Card className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm border-0 shadow-lg h-[calc(100vh-200px)] flex flex-col">
-							{/* Messages */}
-							<div className="flex-1 overflow-y-auto p-4 space-y-4">
-								{messages.length === 0 && !streaming && (
-									<div className="h-full flex flex-col items-center justify-center text-slate-400">
-										<Bot className="w-16 h-16 mb-4" />
-										<p className="text-lg mb-2">开始对话</p>
-										<p className="text-sm">输入消息开始测试 API</p>
-									</div>
-								)}
-
-								{messages.map((msg, idx) => (
-									<div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-										<div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+							{messages.map((msg, idx) => (
+								<div
+									key={idx}
+									className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+								>
+									<div
+										className={`flex h-8 w-8 items-center justify-center rounded-full ${
 											msg.role === 'user'
-												? 'bg-blue-500 text-white'
+												? 'bg-primary text-primary-foreground'
 												: msg.role === 'system'
-												? 'bg-purple-500 text-white'
-												: 'bg-green-500 text-white'
-										}`}>
-											{msg.role === 'user' ? (
-												<User className="w-4 h-4" />
-											) : msg.role === 'system' ? (
-												<Settings className="w-4 h-4" />
-											) : (
-												<Bot className="w-4 h-4" />
-											)}
-										</div>
-										<div className={`max-w-[80%] rounded-lg p-4 ${
-											msg.role === 'user'
-												? 'bg-blue-100 dark:bg-blue-900/30'
-												: 'bg-slate-100 dark:bg-slate-700'
-										}`}>
-											<p className="whitespace-pre-wrap text-slate-900 dark:text-white">
-												{msg.content}
-											</p>
-										</div>
-									</div>
-								))}
-
-								{streaming && (
-									<div className="flex gap-3">
-										<div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center">
-											<Bot className="w-4 h-4" />
-										</div>
-										<div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-4 max-w-[80%]">
-											<div className="flex items-center gap-2 text-slate-500">
-												<Loader2 className="w-4 h-4 animate-spin" />
-												<span>生成中...</span>
-											</div>
-										</div>
-									</div>
-								)}
-
-								<div ref={messagesEndRef} />
-							</div>
-
-							{/* Stream Output */}
-							{streaming && streamOutput && (
-								<div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-900">
-									<div className="flex items-center justify-between mb-2">
-										<span className="text-sm text-slate-400">流式输出</span>
-										<Button
-											variant="ghost"
-											size="sm"
-											onClick={() => copyToClipboard(streamOutput)}
-										>
-											<Copy className="w-4 h-4 mr-1" />
-											复制
-										</Button>
-									</div>
-									<pre
-										ref={outputRef}
-										className="text-sm text-green-400 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto"
+												? 'bg-muted text-muted-foreground'
+												: 'bg-primary/10 text-primary'
+										}`}
 									>
-										{streamOutput}
-									</pre>
-								</div>
-							)}
-
-							{/* Error */}
-							{error && (
-								<div className="border-t border-red-200 dark:border-red-800 p-4 bg-red-50 dark:bg-red-900/20">
-									<p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-								</div>
-							)}
-
-							{/* Stats */}
-							{stats && !streaming && (
-								<div className="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-800/50">
-									<div className="flex items-center gap-6 text-sm">
-										<div className="flex items-center gap-2">
-											<Cpu className="w-4 h-4 text-slate-500" />
-											<span className="text-slate-600 dark:text-slate-400">
-												{Math.round(stats.tokens)} tokens
-											</span>
-										</div>
-										<div className="flex items-center gap-2">
-											<Clock className="w-4 h-4 text-slate-500" />
-											<span className="text-slate-600 dark:text-slate-400">
-												{(stats.duration / 1000).toFixed(2)}s
-											</span>
-										</div>
-									</div>
-								</div>
-							)}
-
-							{/* Input */}
-							<div className="border-t border-slate-200 dark:border-slate-700 p-4">
-								<div className="flex gap-2">
-									<Textarea
-										value={input}
-										onChange={(e) => setInput(e.target.value)}
-										onKeyDown={handleKeyDown}
-										placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
-										rows={1}
-										className="flex-1 resize-none"
-										disabled={loading || streaming}
-									/>
-									<Button
-										onClick={handleSend}
-										disabled={loading || streaming || !input.trim()}
-										className="bg-blue-600 hover:bg-blue-700"
-									>
-										{loading || streaming ? (
-											<Loader2 className="w-4 h-4 animate-spin" />
+										{msg.role === 'user' ? (
+											<User className="h-4 w-4" />
+										) : msg.role === 'system' ? (
+											<Settings className="h-4 w-4" />
 										) : (
-											<Play className="w-4 h-4" />
+											<Bot className="h-4 w-4" />
 										)}
+									</div>
+									<div
+										className={`max-w-[80%] rounded-lg p-4 ${
+											msg.role === 'user'
+												? 'bg-primary/10'
+												: 'bg-muted/60'
+										}`}
+									>
+										<p className="whitespace-pre-wrap">{msg.content}</p>
+									</div>
+								</div>
+							))}
+
+							{streaming && (
+								<div className="flex gap-3">
+									<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+										<Bot className="h-4 w-4" />
+									</div>
+									<div className="max-w-[80%] rounded-lg bg-muted/60 p-4">
+										<div className="flex items-center gap-2 text-muted-foreground">
+											<Loader2 className="h-4 w-4 animate-spin" />
+											<span>生成中...</span>
+										</div>
+									</div>
+								</div>
+							)}
+
+							<div ref={messagesEndRef} />
+						</div>
+
+						{/* Stream Output - 主题化，去掉硬黑硬绿 */}
+						{streaming && streamOutput && (
+							<div className="border-t border-border bg-muted/40 p-4">
+								<div className="mb-2 flex items-center justify-between">
+									<span className="text-sm text-muted-foreground">流式输出</span>
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={() => copyOutput(streamOutput, '流式输出')}
+									>
+										<Copy className="mr-1 h-3.5 w-3.5" />
+										复制
 									</Button>
 								</div>
+								<pre
+									ref={outputRef}
+									className="max-h-40 overflow-y-auto whitespace-pre-wrap font-mono text-sm leading-relaxed"
+								>
+									{streamOutput}
+								</pre>
 							</div>
-						</Card>
-					</div>
+						)}
+
+						{/* Error */}
+						{error && (
+							<div className="border-t border-destructive/20 bg-destructive/5 p-4">
+								<p className="text-sm text-destructive">{error}</p>
+							</div>
+						)}
+
+						{/* Stats */}
+						{stats && !streaming && (
+							<div className="border-t border-border bg-muted/30 p-4">
+								<div className="flex items-center gap-6 text-sm">
+									<div className="flex items-center gap-2">
+										<Cpu className="h-4 w-4 text-muted-foreground" />
+										<span className="text-muted-foreground tabular-nums">
+											{Math.round(stats.tokens)} tokens
+										</span>
+									</div>
+									<div className="flex items-center gap-2">
+										<Clock className="h-4 w-4 text-muted-foreground" />
+										<span className="text-muted-foreground tabular-nums">
+											{(stats.duration / 1000).toFixed(2)}s
+										</span>
+									</div>
+								</div>
+							</div>
+						)}
+
+						{/* Input */}
+						<div className="border-t border-border p-4">
+							<div className="flex gap-2">
+								<Textarea
+									value={input}
+									onChange={(e) => setInput(e.target.value)}
+									onKeyDown={handleKeyDown}
+									placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+									rows={1}
+									className="flex-1 resize-none"
+									disabled={loading || streaming || noKeys}
+								/>
+								<Button
+									onClick={handleSend}
+									disabled={loading || streaming || !input.trim() || noKeys}
+								>
+									{loading || streaming ? (
+										<Loader2 className="h-4 w-4 animate-spin" />
+									) : (
+										<Play className="h-4 w-4" />
+									)}
+								</Button>
+							</div>
+						</div>
+					</Card>
 				</div>
 			</div>
-		</div>
+		</PageShell>
 	);
 }

@@ -62,18 +62,19 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* 项目主色：emerald-600 系，与"网关 / 通道"语义契合，避开蓝紫 AI slop 区间 */
+  --primary: oklch(0.51 0.09 195);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.96 0.02 195);
+  --accent-foreground: oklch(0.3 0.06 195);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.51 0.09 195);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -129,6 +130,12 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 微妙的径向背景层，所有页面共享，替代各页面的 from-slate-50 to-slate-100 渐变 */
+    background-image:
+      radial-gradient(at 0% 0%, oklch(0.96 0.02 195 / 0.4) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, oklch(0.95 0.015 260 / 0.3) 0px, transparent 50%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
   }
 }
 

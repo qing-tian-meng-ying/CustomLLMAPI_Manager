@@ -2,23 +2,55 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-	Key, 
-	Plus, 
-	Trash2, 
-	Edit2, 
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { PageShell } from '@/components/page-shell';
+import { useCopy } from '@/hooks/use-copy';
+import {
+	Key,
+	Plus,
+	Trash2,
+	Edit2,
 	Cpu,
 	Copy,
 	Star,
-	StarOff
+	StarOff,
+	X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -28,7 +60,7 @@ interface ApiKey {
 	provider: string;
 	base_url: string;
 	api_key: string;
-	models: string[]; // 改为数组
+	models: string[];
 	is_active: boolean;
 	is_default: boolean;
 	created_at: string;
@@ -60,19 +92,27 @@ const MODELS_BY_PROVIDER: Record<string, string[]> = {
 	custom: ['custom-model'],
 };
 
+const DEFAULT_FORM = {
+	name: '',
+	provider: 'openai',
+	base_url: 'https://api.openai.com/v1',
+	api_key: '',
+	models: ['gpt-4o'],
+	is_default: false,
+};
+
 export default function KeysPage() {
 	const [keys, setKeys] = useState<ApiKey[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingKey, setEditingKey] = useState<ApiKey | null>(null);
-	const [formData, setFormData] = useState({
-		name: '',
-		provider: 'openai',
-		base_url: 'https://api.openai.com/v1',
-		api_key: '',
-		models: ['gpt-4o'], // 改为数组
-		is_default: false,
-	});
+	const [formData, setFormData] = useState({ ...DEFAULT_FORM });
+
+	// 删除确认
+	const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
+	const [deleting, setDeleting] = useState(false);
+
+	const { copy: copyBaseUrl } = useCopy();
 
 	useEffect(() => {
 		fetchKeys();
@@ -94,12 +134,12 @@ export default function KeysPage() {
 	};
 
 	const handleProviderChange = (provider: string) => {
-		const providerConfig = PROVIDERS.find(p => p.value === provider);
+		const providerConfig = PROVIDERS.find((p) => p.value === provider);
 		setFormData({
 			...formData,
 			provider,
 			base_url: providerConfig?.baseUrl || '',
-			models: [MODELS_BY_PROVIDER[provider]?.[0] || ''], // 改为数组
+			models: [MODELS_BY_PROVIDER[provider]?.[0] || ''],
 		});
 	};
 
@@ -114,7 +154,6 @@ export default function KeysPage() {
 			return;
 		}
 
-		// 编辑时如果 api_key 为空，不发送该字段
 		if (!editingKey && !formData.api_key) {
 			toast.error('请填写 API Key');
 			return;
@@ -130,17 +169,14 @@ export default function KeysPage() {
 				models: formData.models,
 				is_default: formData.is_default,
 			};
-			
-			// 只有在有值时才发送 api_key
+
 			if (formData.api_key) {
 				body.api_key = formData.api_key;
 			}
-			
+
 			if (editingKey) {
 				body.id = editingKey.id;
 			}
-
-			console.log('提交数据:', body);
 
 			const res = await fetch(url, {
 				method,
@@ -152,18 +188,10 @@ export default function KeysPage() {
 				toast.success(editingKey ? '更新成功' : '添加成功');
 				setDialogOpen(false);
 				setEditingKey(null);
-				setFormData({
-					name: '',
-					provider: 'openai',
-					base_url: 'https://api.openai.com/v1',
-					api_key: '',
-					models: ['gpt-4o'],
-					is_default: false,
-				});
+				setFormData({ ...DEFAULT_FORM });
 				fetchKeys();
 			} else {
 				const error = await res.json();
-				console.error('保存失败:', error);
 				toast.error(error.error?.message || '操作失败');
 			}
 		} catch (error) {
@@ -178,20 +206,21 @@ export default function KeysPage() {
 			name: key.name,
 			provider: key.provider,
 			base_url: key.base_url,
-			api_key: '', // 不显示原有 key
-			models: key.models, // 使用数组
+			api_key: '',
+			models: key.models,
 			is_default: key.is_default,
 		});
 		setDialogOpen(true);
 	};
 
-	const handleDelete = async (id: string) => {
-		if (!confirm('确定要删除这个 API Key 吗？')) return;
-
+	const handleDelete = async () => {
+		if (!deleteTarget) return;
 		try {
-			const res = await fetch(`/api/keys?id=${id}`, { method: 'DELETE' });
+			setDeleting(true);
+			const res = await fetch(`/api/keys?id=${deleteTarget.id}`, { method: 'DELETE' });
 			if (res.ok) {
 				toast.success('删除成功');
+				setDeleteTarget(null);
 				fetchKeys();
 			} else {
 				toast.error('删除失败');
@@ -199,6 +228,8 @@ export default function KeysPage() {
 		} catch (error) {
 			console.error('删除失败:', error);
 			toast.error('删除失败');
+		} finally {
+			setDeleting(false);
 		}
 	};
 
@@ -242,11 +273,6 @@ export default function KeysPage() {
 		}
 	};
 
-	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
-		toast.success('已复制到剪贴板');
-	};
-
 	const groupByProvider = keys.reduce((acc, key) => {
 		if (!acc[key.provider]) acc[key.provider] = [];
 		acc[key.provider].push(key);
@@ -254,37 +280,33 @@ export default function KeysPage() {
 	}, {} as Record<string, ApiKey[]>);
 
 	return (
-		<div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-			<div className="container mx-auto px-4 py-8">
-				{/* Header */}
-				<div className="flex items-center justify-between mb-8">
-					<div className="flex items-center gap-3">
-						<div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl">
-							<Key className="w-6 h-6 text-white" />
-						</div>
-						<div>
-							<h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-								API Key 管理
-							</h1>
-							<p className="text-sm text-slate-500 dark:text-slate-400">
-								配置各大 AI 服务商的 API Key
+		<PageShell
+			title="API Key 管理"
+			subtitle="配置各大 AI 服务商的 API Key"
+			icon={Key}
+			actions={
+				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+					<DialogTrigger asChild>
+						<Button>
+							<Plus className="mr-2 h-4 w-4" />
+							添加 API Key
+						</Button>
+					</DialogTrigger>
+					<DialogContent className="sm:max-w-[600px] gap-0 p-0">
+						<DialogHeader className="border-b px-6 pt-6 pb-4 text-left">
+							<DialogTitle className="text-base">
+								{editingKey ? '编辑 API Key' : '添加新的 API Key'}
+							</DialogTitle>
+							<p className="text-sm text-muted-foreground">
+								{editingKey
+									? '修改 API Key 配置，留空字段将保留原值'
+									: '配置 AI 服务商的 API Key，支持多个相同提供商'}
 							</p>
-						</div>
-					</div>
-					<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-						<DialogTrigger asChild>
-							<Button className="bg-blue-600 hover:bg-blue-700">
-								<Plus className="w-4 h-4 mr-2" />
-								添加 API Key
-							</Button>
-						</DialogTrigger>
-						<DialogContent className="sm:max-w-lg">
-							<DialogHeader>
-								<DialogTitle>
-									{editingKey ? '编辑 API Key' : '添加新的 API Key'}
-								</DialogTitle>
-							</DialogHeader>
-							<div className="space-y-4 py-4">
+						</DialogHeader>
+
+						<div className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5">
+							{/* 基本信息：名称 + 提供商 双列 */}
+							<div className="grid gap-4 sm:grid-cols-2">
 								<div className="space-y-2">
 									<Label htmlFor="name">名称</Label>
 									<Input
@@ -294,7 +316,6 @@ export default function KeysPage() {
 										onChange={(e) => setFormData({ ...formData, name: e.target.value })}
 									/>
 								</div>
-
 								<div className="space-y-2">
 									<Label htmlFor="provider">提供商</Label>
 									<Select value={formData.provider} onValueChange={handleProviderChange}>
@@ -310,245 +331,351 @@ export default function KeysPage() {
 										</SelectContent>
 									</Select>
 								</div>
+							</div>
 
+							{/* 连接配置 */}
+							<div className="space-y-2">
+								<Label htmlFor="base_url">API Base URL</Label>
+								<Input
+									id="base_url"
+									placeholder="https://api.openai.com/v1"
+									value={formData.base_url}
+									onChange={(e) => setFormData({ ...formData, base_url: e.target.value })}
+									className="font-mono text-sm"
+								/>
+							</div>
+
+							<div className="space-y-2">
+								<Label htmlFor="api_key" className="flex items-center gap-2">
+									API Key
+									{editingKey && (
+										<span className="text-xs font-normal text-muted-foreground">
+											（留空则保留原值）
+										</span>
+									)}
+								</Label>
+								<Input
+									id="api_key"
+									type="password"
+									placeholder="sk-..."
+									value={formData.api_key}
+									onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+									className="font-mono text-sm"
+								/>
+							</div>
+
+							{/* 模型配置 */}
+							<div className="space-y-2">
+								<Label htmlFor="models">支持的模型（可多选）</Label>
 								<div className="space-y-2">
-									<Label htmlFor="base_url">API Base URL</Label>
 									<Input
-										id="base_url"
-										placeholder="https://api.openai.com/v1"
-										value={formData.base_url}
-										onChange={(e) => setFormData({ ...formData, base_url: e.target.value })}
+										placeholder="输入模型名称，按回车添加"
+										onKeyDown={(e) => {
+											if (e.key === 'Enter') {
+												e.preventDefault();
+												const input = e.currentTarget;
+												const value = input.value.trim();
+												if (value && !formData.models.includes(value)) {
+													setFormData({ ...formData, models: [...formData.models, value] });
+													input.value = '';
+												}
+											}
+										}}
 									/>
-								</div>
-
-								<div className="space-y-2">
-									<Label htmlFor="api_key">
-										API Key {editingKey && <span className="text-slate-400">(留空则保留原值)</span>}
-									</Label>
-									<Input
-										id="api_key"
-										type="password"
-										placeholder="sk-..."
-										value={formData.api_key}
-										onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-									/>
-								</div>
-
-								<div className="space-y-2">
-									<Label htmlFor="models">支持的模型（可多选）</Label>
-									<div className="space-y-2">
-										<div className="space-y-2">
-											<Input
-												placeholder="输入模型名称，按回车添加"
-												onKeyDown={(e) => {
-													if (e.key === 'Enter') {
-														e.preventDefault();
-														const input = e.currentTarget;
-														const value = input.value.trim();
-														if (value && !formData.models.includes(value)) {
-															setFormData({ ...formData, models: [...formData.models, value] });
-															input.value = '';
-														}
+									{formData.provider !== 'custom' &&
+										MODELS_BY_PROVIDER[formData.provider]?.length > 0 && (
+											<Select
+												value=""
+												onValueChange={(v) => {
+													if (v && !formData.models.includes(v)) {
+														setFormData({ ...formData, models: [...formData.models, v] });
 													}
 												}}
-											/>
-											{formData.provider !== 'custom' && MODELS_BY_PROVIDER[formData.provider]?.length > 0 && (
-												<Select
-													value=""
-													onValueChange={(v) => {
-														if (v && !formData.models.includes(v)) {
-															setFormData({ ...formData, models: [...formData.models, v] });
-														}
-													}}
+											>
+												<SelectTrigger>
+													<SelectValue placeholder="或从预设模型中选择" />
+												</SelectTrigger>
+												<SelectContent>
+													{MODELS_BY_PROVIDER[formData.provider]
+														.filter((m) => !formData.models.includes(m))
+														.map((m) => (
+															<SelectItem key={m} value={m}>
+																{m}
+															</SelectItem>
+														))}
+												</SelectContent>
+											</Select>
+										)}
+									{formData.models.length > 0 && (
+										<div className="flex flex-wrap gap-1.5 pt-1">
+											{formData.models.map((model, index) => (
+												<Badge
+													key={`${model}-${index}`}
+													variant="secondary"
+													className="flex items-center gap-1 font-mono"
 												>
-													<SelectTrigger>
-														<SelectValue placeholder="或从预设模型中选择" />
-													</SelectTrigger>
-													<SelectContent>
-														{MODELS_BY_PROVIDER[formData.provider]
-															.filter(m => !formData.models.includes(m))
-															.map((m) => (
-																<SelectItem key={m} value={m}>
-																	{m}
-																</SelectItem>
-															))}
-													</SelectContent>
-												</Select>
-											)}
-											<div className="flex flex-wrap gap-2">
-												{formData.models.map((model, index) => (
-													<Badge key={index} variant="secondary" className="flex items-center gap-1">
-														{model}
-														<button
-															onClick={() => {
-																const newModels = formData.models.filter((_, i) => i !== index);
-																setFormData({ ...formData, models: newModels });
-															}}
-															className="ml-1 hover:text-red-600"
-														>
-															×
-														</button>
-													</Badge>
-												))}
-											</div>
+													{model}
+													<button
+														type="button"
+														aria-label={`移除 ${model}`}
+														onClick={() => {
+															const newModels = formData.models.filter((_, i) => i !== index);
+															setFormData({ ...formData, models: newModels });
+														}}
+														className="ml-0.5 text-muted-foreground transition-colors hover:text-destructive"
+													>
+														<X className="h-3 w-3" />
+													</button>
+												</Badge>
+											))}
 										</div>
-									</div>
+									)}
 								</div>
-
-								<div className="flex items-center space-x-2">
-									<Switch
-										id="is_default"
-										checked={formData.is_default}
-										onCheckedChange={(checked) => setFormData({ ...formData, is_default: checked })}
-									/>
-									<Label htmlFor="is_default">设为该提供商的默认 Key</Label>
-								</div>
-
-								<Button onClick={handleSubmit} className="w-full">
-									{editingKey ? '保存修改' : '添加'}
-								</Button>
 							</div>
-						</DialogContent>
-					</Dialog>
+
+							{/* 默认开关 */}
+							<div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
+								<div className="space-y-0.5">
+									<Label htmlFor="is_default" className="cursor-pointer">
+										设为该提供商的默认 Key
+									</Label>
+									<p className="text-xs text-muted-foreground">
+										相同提供商的请求会优先使用此 Key
+									</p>
+								</div>
+								<Switch
+									id="is_default"
+									checked={formData.is_default}
+									onCheckedChange={(checked) =>
+										setFormData({ ...formData, is_default: checked })
+									}
+								/>
+							</div>
+						</div>
+
+						{/* 底部操作区 */}
+						<div className="flex justify-end gap-3 border-t px-6 py-4">
+							<Button variant="outline" onClick={() => setDialogOpen(false)}>
+								取消
+							</Button>
+							<Button onClick={handleSubmit}>
+								{editingKey ? '保存修改' : '添加'}
+							</Button>
+						</div>
+					</DialogContent>
+				</Dialog>
+			}
+		>
+			{loading ? (
+				<div className="grid gap-4">
+					{[1, 2, 3].map((i) => (
+						<Skeleton key={i} className="h-32 w-full" />
+					))}
 				</div>
-
-				{/* Keys List */}
-				{loading ? (
-					<div className="grid gap-4">
-						{[1, 2, 3].map((i) => (
-							<Skeleton key={i} className="h-32 w-full" />
-						))}
-					</div>
-				) : keys.length === 0 ? (
-					<Card className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-						<CardContent className="py-12 text-center">
-							<Cpu className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-							<h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
-								暂无 API Key
-							</h3>
-							<p className="text-slate-500 mb-4">
-								点击上方按钮添加你的第一个 API Key
-							</p>
-						</CardContent>
-					</Card>
-				) : (
-					<div className="space-y-6">
-						{Object.entries(groupByProvider).map(([provider, providerKeys]) => (
-							<div key={provider}>
-								<h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
-									<Badge variant="outline" className="capitalize">
-										{provider}
-									</Badge>
-									<span className="text-sm text-slate-500">
-										{providerKeys.length} 个 Key
-									</span>
-								</h2>
-								<div className="grid gap-4">
-									{providerKeys.map((key) => (
-										<Card
-											key={key.id}
-											className={`bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm transition-opacity ${
-												!key.is_active ? 'opacity-60' : ''
-											}`}
-										>
-											<CardContent className="py-4">
-												<div className="flex items-start justify-between">
-													<div className="flex-1">
-														<div className="flex items-center gap-2 mb-2">
-															<h3 className="font-medium text-slate-900 dark:text-white">
-																{key.name}
-															</h3>
-															{key.is_default && (
-																<Badge variant="default" className="text-xs bg-amber-100 text-amber-700 hover:bg-amber-100">
-																	<Star className="w-3 h-3 mr-1" />
-																	默认
-																</Badge>
-															)}
-															{!key.is_active && (
-																<Badge variant="secondary" className="text-xs">
-																	已禁用
-																</Badge>
-															)}
-														</div>
-														<div className="grid grid-cols-1 gap-4 text-sm">
-															<div>
-																<div className="text-slate-500 dark:text-slate-400 mb-1 text-sm">支持的模型 ({key.models.length} 个)</div>
-																<div className="flex flex-wrap gap-1">
-																	{key.models.map((model, idx) => (
-																		<Badge key={idx} variant="outline" className="text-xs font-mono">
-																			{model}
-																		</Badge>
-																	))}
-																</div>
-															</div>
-															<div>
-																<div className="text-slate-500 dark:text-slate-400 text-sm">Base URL</div>
-																<div className="flex items-center gap-2">
-																	<span className="text-slate-900 dark:text-white font-mono text-xs truncate">
-																		{key.base_url}
-																	</span>
-																	<button
-																		onClick={() => copyToClipboard(key.base_url)}
-																		className="text-slate-400 hover:text-slate-600"
-																	>
-																		<Copy className="w-3 h-3" />
-																	</button>
-																</div>
-															</div>
-														</div>
-													</div>
-													<div className="flex items-center gap-2 ml-4">
-														<button
-															onClick={() => handleSetDefault(key)}
-															className={`p-2 rounded-lg transition-colors ${
-																key.is_default
-																	? 'text-amber-500 bg-amber-50 dark:bg-amber-900/30'
-																	: 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700'
-															}`}
-														>
-															{key.is_default ? <Star className="w-4 h-4" /> : <StarOff className="w-4 h-4" />}
-														</button>
-														<Switch
-															checked={key.is_active}
-															onCheckedChange={() => handleToggleActive(key)}
-															className="data-[state=checked]:bg-green-600"
-														/>
-														<button
-															onClick={() => handleEdit(key)}
-															className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-														>
-															<Edit2 className="w-4 h-4" />
-														</button>
-														<button
-															onClick={() => handleDelete(key.id)}
-															className="p-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
-														>
-															<Trash2 className="w-4 h-4" />
-														</button>
-													</div>
-												</div>
-											</CardContent>
-										</Card>
-									))}
-								</div>
-							</div>
-						))}
-					</div>
-				)}
-
-				{/* Usage Tips */}
-				<Card className="mt-8 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-slate-800/50 dark:to-slate-700/50 border-0">
-					<CardHeader>
-						<CardTitle className="text-lg">使用说明</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-						<p>1. 支持多个相同提供商的 API Key，系统会优先使用标记为「默认」的 Key</p>
-						<p>2. 禁用某个 Key 后，使用该提供商的请求会自动切换到其他可用的 Key</p>
-						<p>3. 调用时会自动记录请求和响应，可在「调用记录」中查看详情</p>
-						<p>4. 所有 Key 信息加密存储，不会明文显示</p>
+			) : keys.length === 0 ? (
+				<Card>
+					<CardContent className="py-12 text-center">
+						<Cpu className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
+						<h3 className="mb-2 text-lg font-medium">暂无 API Key</h3>
+						<p className="text-muted-foreground">点击右上角按钮添加你的第一个 API Key</p>
 					</CardContent>
 				</Card>
-			</div>
-		</div>
+			) : (
+				<div className="space-y-6">
+					{Object.entries(groupByProvider).map(([provider, providerKeys]) => (
+						<div key={provider}>
+							<h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
+								<Badge variant="outline" className="capitalize">
+									{provider}
+								</Badge>
+								<span className="text-sm text-muted-foreground">
+									{providerKeys.length} 个 Key
+								</span>
+							</h2>
+							<div className="grid gap-3">
+								{providerKeys.map((key) => (
+									<Card
+										key={key.id}
+										className={key.is_active ? '' : 'opacity-60'}
+									>
+										<CardContent className="py-4">
+											<div className="flex items-start justify-between">
+												<div className="flex-1 min-w-0">
+													<div className="mb-2 flex items-center gap-2">
+														<h3 className="font-medium">{key.name}</h3>
+														{key.is_default && (
+															<Badge variant="secondary" className="bg-primary/10 text-primary">
+																<Star className="mr-1 h-3 w-3" />
+																默认
+															</Badge>
+														)}
+														{!key.is_active && (
+															<Badge variant="secondary">已禁用</Badge>
+														)}
+													</div>
+													<div className="grid grid-cols-1 gap-3 text-sm">
+														<div>
+															<div className="mb-1 text-xs text-muted-foreground">
+																支持的模型 ({key.models.length} 个)
+															</div>
+															<div className="flex flex-wrap gap-1">
+																{key.models.map((model, idx) => (
+																	<Badge
+																		key={idx}
+																		variant="outline"
+																		className="font-mono text-xs"
+																	>
+																		{model}
+																	</Badge>
+																))}
+															</div>
+														</div>
+														<div>
+															<div className="text-xs text-muted-foreground">Base URL</div>
+															<div className="flex items-center gap-2">
+																<span className="truncate font-mono text-xs">
+																	{key.base_url}
+																</span>
+																<button
+																	onClick={() => copyBaseUrl(key.base_url, 'Base URL')}
+																	className="text-muted-foreground transition-colors hover:text-foreground"
+																	aria-label="复制 Base URL"
+																>
+																	<Copy className="h-3 w-3" />
+																</button>
+															</div>
+														</div>
+													</div>
+												</div>
+
+												{/* 操作按钮：分组 + 分隔 */}
+												<div className="ml-4 flex items-center gap-1">
+													<TooltipProvider delayDuration={300}>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<button
+																	onClick={() => handleSetDefault(key)}
+																	className={`rounded-md p-2 transition-colors ${
+																		key.is_default
+																			? 'text-primary'
+																			: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+																	}`}
+																	aria-label={key.is_default ? '取消默认' : '设为默认'}
+																>
+																	{key.is_default ? (
+																		<Star className="h-4 w-4" />
+																	) : (
+																		<StarOff className="h-4 w-4" />
+																	)}
+																</button>
+															</TooltipTrigger>
+															<TooltipContent>
+																{key.is_default ? '取消默认' : '设为默认'}
+															</TooltipContent>
+														</Tooltip>
+													</TooltipProvider>
+
+													<TooltipProvider delayDuration={300}>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<div>
+																	<Switch
+																		checked={key.is_active}
+																		onCheckedChange={() => handleToggleActive(key)}
+																		aria-label="启用/禁用"
+																	/>
+																</div>
+															</TooltipTrigger>
+															<TooltipContent>
+																{key.is_active ? '禁用' : '启用'}
+															</TooltipContent>
+														</Tooltip>
+													</TooltipProvider>
+
+													<Separator orientation="vertical" className="mx-1 h-6" />
+
+													<TooltipProvider delayDuration={300}>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<button
+																	onClick={() => handleEdit(key)}
+																	className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+																	aria-label="编辑"
+																>
+																	<Edit2 className="h-4 w-4" />
+																</button>
+															</TooltipTrigger>
+															<TooltipContent>编辑</TooltipContent>
+														</Tooltip>
+													</TooltipProvider>
+
+													<TooltipProvider delayDuration={300}>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<button
+																	onClick={() => setDeleteTarget(key)}
+																	className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+																	aria-label="删除"
+																>
+																	<Trash2 className="h-4 w-4" />
+																</button>
+															</TooltipTrigger>
+															<TooltipContent>删除</TooltipContent>
+														</Tooltip>
+													</TooltipProvider>
+												</div>
+											</div>
+										</CardContent>
+									</Card>
+								))}
+							</div>
+						</div>
+					))}
+				</div>
+			)}
+
+			{/* 使用说明 */}
+			<Card className="mt-8 bg-muted/30">
+								<CardContent className="space-y-2 py-4 text-sm text-muted-foreground">
+									<p>1. 支持多个相同提供商的 API Key，系统会优先使用标记为「默认」的 Key</p>
+									<p>2. 禁用某个 Key 后，使用该提供商的请求会自动切换到其他可用的 Key</p>
+									<p>3. 调用时会自动记录请求和响应，可在「Logs」中查看详情</p>
+									<p>4. 所有 Key 信息加密存储，不会明文显示</p>
+								</CardContent>
+							</Card>
+
+			{/* 删除确认 */}
+			<AlertDialog
+				open={!!deleteTarget}
+				onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>确认删除这个 API Key？</AlertDialogTitle>
+						<AlertDialogDescription>
+							此操作不可恢复。
+							{deleteTarget && (
+								<span className="mt-2 block truncate font-mono text-xs text-muted-foreground">
+									{deleteTarget.name} · {deleteTarget.provider}
+								</span>
+							)}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={(e) => {
+								e.preventDefault();
+								handleDelete();
+							}}
+							disabled={deleting}
+							className="bg-destructive text-white hover:bg-destructive/90"
+						>
+							{deleting ? '删除中...' : '确认删除'}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</PageShell>
 	);
 }
