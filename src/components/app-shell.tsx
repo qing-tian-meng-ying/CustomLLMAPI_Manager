@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Key, FileText, Play } from 'lucide-react';
+import { LayoutDashboard, Key, FileText, Play, Cpu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -15,6 +15,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { href: '/keys', label: 'Keys', icon: Key },
+  { href: '/models', label: 'Models', icon: Cpu },
   { href: '/logs', label: 'Logs', icon: FileText },
   { href: '/test', label: 'Test', icon: Play },
 ];

@@ -1,5 +1,4 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core"
-import { sql } from "drizzle-orm"
 
 // 网关 API Key 表（给用户使用的 Key）
 export const gatewayApiKeys = sqliteTable(
@@ -43,6 +42,26 @@ export const apiKeys = sqliteTable(
 		isActiveIdx: index("api_keys_is_active_idx").on(table.is_active),
 		isDefaultIdx: index("api_keys_is_default_idx").on(table.is_default),
 		priorityIdx: index("api_keys_priority_idx").on(table.priority),
+	})
+);
+
+// 模型路由表：同一模型可绑定多个上游 Key，priority 数字越小优先级越高
+export const modelRoutes = sqliteTable(
+	"model_routes",
+	{
+		id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+		model: text("model").notNull(), // 展示用的模型名称
+		model_key: text("model_key").notNull(), // 小写规范化名称，用于大小写无关匹配
+		api_key_id: text("api_key_id").notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+		priority: integer("priority").default(1).notNull(), // 1 为最高优先级
+		is_active: integer("is_active", { mode: 'boolean' }).default(true).notNull(),
+		created_at: integer("created_at", { mode: 'timestamp' }).$defaultFn(() => new Date()).notNull(),
+		updated_at: integer("updated_at", { mode: 'timestamp' }),
+	},
+	(table) => ({
+		modelKeyIdx: index("model_routes_model_key_idx").on(table.model_key),
+		apiKeyIdIdx: index("model_routes_api_key_id_idx").on(table.api_key_id),
+		modelPriorityIdx: index("model_routes_model_priority_idx").on(table.model_key, table.priority),
 	})
 );
 

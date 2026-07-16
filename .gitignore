@@ -105,3 +105,6 @@ data/
 *.db-shm
 *.db-wal
 drizzle/
+dev.bat
+skills-lock.json
+.agents/

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/storage/database/sqlite-client';
 import { apiKeys, apiCallLogs } from '@/storage/database/shared/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { syncModelRoutesForApiKey, deleteModelRoutesForApiKey } from '@/lib/api-utils';
+import { eq, desc } from 'drizzle-orm';
 
 // 获取所有 API Keys
 export async function GET(req: NextRequest) {
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
 			is_default: is_default || false,
 			created_at: new Date(),
 		});
+		await syncModelRoutesForApiKey(id, models);
 		
 		const result = await db
 			.select()
@@ -164,6 +166,9 @@ export async function PUT(req: NextRequest) {
 			.update(apiKeys)
 			.set(updateData)
 			.where(eq(apiKeys.id, id));
+		if (models !== undefined) {
+			await syncModelRoutesForApiKey(id, models);
+		}
 		
 		const result = await db
 			.select()
@@ -209,6 +214,9 @@ export async function DELETE(req: NextRequest) {
 			.update(apiCallLogs)
 			.set({ api_key_id: null })
 			.where(eq(apiCallLogs.api_key_id, id));
+		
+		// 清理模型路由并重排同模型的剩余优先级。
+		await deleteModelRoutesForApiKey(id);
 		
 		// 再删除 Key
 		await db
