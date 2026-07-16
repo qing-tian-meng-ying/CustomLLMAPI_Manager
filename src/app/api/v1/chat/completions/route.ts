@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getApiKeyConfig, getApiKeyByModel, logApiCall } from '@/lib/api-utils';
+import { getApiKeyConfig, getApiKeyByModel, getApiKeyById, logApiCall } from '@/lib/api-utils';
 import { validateGatewayKey, updateGatewayKeyStats } from '@/lib/gateway-utils';
 import {
 	getProviderAdapter,
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
 		
 		// 解析请求体
 		requestBody = await req.json() as OpenAIRequest;
-		const { model, messages, provider, ...otherParams } = requestBody;
+		const { model, messages, provider, api_key_id, ...otherParams } = requestBody;
 		
 		// 验证必填字段
 		if (!model) {
@@ -141,9 +141,23 @@ export async function POST(req: NextRequest) {
 		}
 		
 		// 获取 API Key 配置
-		// 优先级：1. 明确指定 provider -> 2. 根据模型名直接匹配
+		// 优先级：1. 明确指定 api_key_id（精确路由）-> 2. 指定 provider -> 3. 根据模型名匹配
 		let apiKeyConfig;
-		if (provider) {
+		if (api_key_id) {
+			// 精确路由到指定的 Key（测试页面选定某个 Key 时使用）
+			apiKeyConfig = await getApiKeyById(api_key_id as string);
+			if (!apiKeyConfig) {
+				return NextResponse.json(
+					{
+						error: {
+							message: `未找到可用的 API Key 配置 (api_key_id: ${api_key_id})，可能已被删除或禁用`,
+							code: 'no_api_key',
+						},
+					},
+					{ status: 400 }
+				);
+			}
+		} else if (provider) {
 			// 如果明确指定了 provider，使用旧逻辑
 			apiKeyConfig = await getApiKeyConfig(provider as string);
 			if (!apiKeyConfig) {

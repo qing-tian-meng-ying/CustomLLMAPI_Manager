@@ -166,6 +166,8 @@ export default function TestPage() {
 					stream: true,
 					temperature,
 					max_tokens: maxTokens,
+					// 精确指定所选 Key，避免路由到该 provider 的默认 Key
+					api_key_id: selectedKey,
 					provider: selectedKeyData?.provider,
 				}),
 			});
@@ -242,6 +244,8 @@ export default function TestPage() {
 					stream: false,
 					temperature,
 					max_tokens: maxTokens,
+					// 精确指定所选 Key，避免路由到该 provider 的默认 Key
+					api_key_id: selectedKey,
 					provider: selectedKeyData?.provider,
 				}),
 			});

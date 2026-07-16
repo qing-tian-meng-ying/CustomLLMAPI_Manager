@@ -38,6 +38,24 @@ export async function getApiKeyConfig(provider?: string) {
 }
 
 /**
+ * 根据 ID 精确获取 API Key 配置（仅返回启用的）
+ */
+export async function getApiKeyById(id: string) {
+	const db = getDatabase();
+
+	const results = await db
+		.select()
+		.from(apiKeys)
+		.where(and(
+			eq(apiKeys.id, id),
+			eq(apiKeys.is_active, true)
+		))
+		.limit(1);
+
+	return results[0] || null;
+}
+
+/**
  * 根据模型名直接匹配 API Key 配置
  * 如果多个配置支持同一个模型，随机选择一个
  */

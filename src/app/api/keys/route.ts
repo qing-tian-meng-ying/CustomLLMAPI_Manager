@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/storage/database/sqlite-client';
-import { apiKeys } from '@/storage/database/shared/schema';
+import { apiKeys, apiCallLogs } from '@/storage/database/shared/schema';
 import { eq, and, desc } from 'drizzle-orm';
 
 // 获取所有 API Keys
@@ -204,6 +204,13 @@ export async function DELETE(req: NextRequest) {
 		
 		const db = getDatabase();
 		
+		// 先解除调用日志对该 Key 的外键引用（保留历史日志，避免 FOREIGN KEY constraint failed）
+		await db
+			.update(apiCallLogs)
+			.set({ api_key_id: null })
+			.where(eq(apiCallLogs.api_key_id, id));
+		
+		// 再删除 Key
 		await db
 			.delete(apiKeys)
 			.where(eq(apiKeys.id, id));
