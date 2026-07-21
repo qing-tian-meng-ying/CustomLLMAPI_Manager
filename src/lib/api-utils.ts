@@ -598,3 +598,105 @@ export async function getApiStats(params: {
 		models: Array.from(stat.models),
 	}));
 }
+
+/** token 监控支持的时间粒度 */
+export type TokenUsageGranularity = 'month' | 'week' | 'day' | 'hour' | 'minute';
+
+/**
+ * 按时间粒度聚合各模型的 token 消耗。
+ * created_at 在库中以“秒”存储（drizzle timestamp 模式），这里用 strftime + 'unixepoch' + 'localtime'
+ * 按本地时区归桶，避免前端出现时区偏移。
+ */
+export async function getTokenUsageTimeSeries(params: {
+	granularity: TokenUsageGranularity;
+	startDate?: string;
+	endDate?: string;
+	/** 最多返回多少个时间桶（保留最新的 N 个），用于避免长时间跨度下数据点过密。 */
+	limit?: number;
+}) {
+	const db = getDatabase();
+	const { granularity, startDate, endDate, limit } = params;
+
+	// 各粒度对应的 strftime 归桶格式
+	const bucketFormat: Record<TokenUsageGranularity, string> = {
+		minute: '%Y-%m-%d %H:%M',
+		hour: '%Y-%m-%d %H:00',
+		day: '%Y-%m-%d',
+		week: '%Y-W%W', // ISO 周（%W：周一为一周起点）
+		month: '%Y-%m',
+	};
+	const format = bucketFormat[granularity];
+
+	const conditions = [];
+	if (startDate) {
+		conditions.push(gte(apiCallLogs.created_at, new Date(startDate)));
+	}
+	if (endDate) {
+		conditions.push(lte(apiCallLogs.created_at, new Date(endDate)));
+	}
+	const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+	const bucketExpr = sql<string>`strftime(${format}, ${apiCallLogs.created_at}, 'unixepoch', 'localtime')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr,
+			model: apiCallLogs.model,
+			tokens: sql<number>`COALESCE(SUM(${apiCallLogs.total_tokens}), 0)`,
+			call_count: sql<number>`COUNT(*)`,
+		})
+		.from(apiCallLogs)
+		.where(whereClause)
+		.groupBy(bucketExpr, apiCallLogs.model)
+		.orderBy(asc(bucketExpr));
+
+	const bucketMap = new Map<string, { time: string; total: number; calls: number; models: Record<string, number> }>();
+
+	for (const row of rows) {
+		const time = row.bucket;
+		const model = row.model;
+		const tokens = Number(row.tokens ?? 0);
+		const calls = Number(row.call_count ?? 0);
+		const entry = bucketMap.get(time) ?? { time, total: 0, calls: 0, models: {} };
+		entry.models[model] = (entry.models[model] ?? 0) + tokens;
+		entry.total += tokens;
+		entry.calls += calls;
+		bucketMap.set(time, entry);
+	}
+
+	// 按时间升序（bucketExpr 字符串格式可直接字典序排序）
+	const allBuckets = Array.from(bucketMap.values());
+	const totalBuckets = allBuckets.length;
+
+	// 应用桶数上限：保留最新的 limit 个，避免长时间跨度下数据点过密。
+	const truncated = typeof limit === 'number' && limit > 0 && totalBuckets > limit;
+	const buckets = truncated ? allBuckets.slice(totalBuckets - limit) : allBuckets;
+
+	// 模型列表与占比仅基于可见窗口计算，保证图例比例与图表一致。
+	const visibleModelSet = new Set<string>();
+	const modelTotals: Record<string, number> = {};
+	let grandTotal = 0;
+	for (const bucket of buckets) {
+		for (const [model, value] of Object.entries(bucket.models)) {
+			if (value > 0) visibleModelSet.add(model);
+			modelTotals[model] = (modelTotals[model] ?? 0) + value;
+			grandTotal += value;
+		}
+	}
+	// 只保留可见窗口内出现过的模型，去掉被截断掉的历史模型
+	const models = Array.from(visibleModelSet).sort();
+	for (const key of Object.keys(modelTotals)) {
+		if (!visibleModelSet.has(key)) delete modelTotals[key];
+	}
+
+	return {
+		granularity,
+		models,
+		buckets,
+		modelTotals,
+		grandTotal,
+		bucketCount: buckets.length,
+		totalBuckets,
+		truncated,
+	};
+}
