@@ -112,7 +112,8 @@ export default function KeysPage() {
 	const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
 	const [deleting, setDeleting] = useState(false);
 
-	const { copy: copyBaseUrl } = useCopy();
+  const { copy: copyBaseUrl } = useCopy();
+  const { copy: copyApiKey } = useCopy();
 
 	useEffect(() => {
 		fetchKeys();
@@ -200,21 +201,37 @@ export default function KeysPage() {
 		}
 	};
 
-	const handleEdit = (key: ApiKey) => {
-		setEditingKey(key);
-		setFormData({
-			name: key.name,
-			provider: key.provider,
-			base_url: key.base_url,
-			api_key: '',
-			models: key.models,
-			is_default: key.is_default,
-		});
-		setDialogOpen(true);
-	};
+  const handleEdit = (key: ApiKey) => {
+    setEditingKey(key);
+    setFormData({
+      name: key.name,
+      provider: key.provider,
+      base_url: key.base_url,
+      api_key: '',
+      models: key.models,
+      is_default: key.is_default,
+    });
+    setDialogOpen(true);
+  };
 
-	const handleDelete = async () => {
-		if (!deleteTarget) return;
+  const handleCopyKey = async (key: ApiKey) => {
+    try {
+      const res = await fetch(`/api/keys/reveal?id=${encodeURIComponent(key.id)}`);
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error?.error?.message || '获取 Key 失败');
+      }
+      const data = await res.json();
+      if (!data.data?.api_key) throw new Error('获取 Key 失败');
+      copyApiKey(data.data.api_key, `${key.name} 的 API Key`);
+    } catch (error) {
+      console.error('复制 API Key 失败:', error);
+      toast.error(error instanceof Error ? error.message : '复制失败');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
 		try {
 			setDeleting(true);
 			const res = await fetch(`/api/keys?id=${deleteTarget.id}`, { method: 'DELETE' });
@@ -530,8 +547,24 @@ export default function KeysPage() {
 																))}
 															</div>
 														</div>
-														<div>
-															<div className="text-xs text-muted-foreground">Base URL</div>
+                            <div>
+                              <div className="text-xs text-muted-foreground">API Key</div>
+                              <div className="flex items-center gap-2">
+                                <span className="truncate font-mono text-xs">
+                                  {key.api_key}
+                                </span>
+                                <button
+                                  onClick={() => handleCopyKey(key)}
+                                  className="text-muted-foreground transition-colors hover:text-foreground"
+                                  aria-label="复制 API Key"
+                                  title="复制完整 API Key"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground">Base URL</div>
 															<div className="flex items-center gap-2">
 																<span className="truncate font-mono text-xs">
 																	{key.base_url}

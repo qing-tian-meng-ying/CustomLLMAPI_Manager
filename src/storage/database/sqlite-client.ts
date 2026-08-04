@@ -101,6 +101,14 @@ function initDatabase(sqlite: Database.Database) {
 		CREATE INDEX IF NOT EXISTS api_call_logs_api_key_id_idx ON api_call_logs(api_key_id);
 	`);
 
+	// 覆盖索引：让统计 / token 监控 / 模型路由统计直接走索引，避免全表扫描
+	// （1GB+ 日志表上，这几类聚合查询从数百毫秒降到几十毫秒）
+	sqlite.exec(`
+		CREATE INDEX IF NOT EXISTS api_call_logs_stats_cover_idx ON api_call_logs(provider, model, total_tokens, duration_ms, created_at);
+		CREATE INDEX IF NOT EXISTS api_call_logs_ts_cover_idx ON api_call_logs(created_at, model, total_tokens);
+		CREATE INDEX IF NOT EXISTS api_call_logs_route_cover_idx ON api_call_logs(api_key_id, LOWER(model), total_tokens, duration_ms, error_message, response_status, created_at, id);
+	`);
+
 	// 创建模型路由表：同一模型可配置多个上游 Key，priority 数字越小越优先
 	sqlite.exec(`
 		CREATE TABLE IF NOT EXISTS model_routes (

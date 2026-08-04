@@ -455,23 +455,70 @@ export async function getApiCallLogs(params: {
 	const total = countResult[0]?.count || 0;
 	
 	// 查询数据
+	// 列表只取展示需要的列：request/response body 单条可达数百 KB（实测请求体累计 600MB），
+	// 全量返回会把列表页 payload 撑到 MB 级。详情走 /api/logs/[id] 按需获取。
 	const results = await db
-		.select()
+		.select({
+			id: apiCallLogs.id,
+			gateway_key_id: apiCallLogs.gateway_key_id,
+			provider: apiCallLogs.provider,
+			model: apiCallLogs.model,
+			api_key_id: apiCallLogs.api_key_id,
+			endpoint: apiCallLogs.endpoint,
+			request_method: apiCallLogs.request_method,
+			request_body: apiCallLogs.request_body,
+			request_tokens: apiCallLogs.request_tokens,
+			response_status: apiCallLogs.response_status,
+			response_tokens: apiCallLogs.response_tokens,
+			total_tokens: apiCallLogs.total_tokens,
+			duration_ms: apiCallLogs.duration_ms,
+			error_message: apiCallLogs.error_message,
+			ip_address: apiCallLogs.ip_address,
+			user_agent: apiCallLogs.user_agent,
+			created_at: apiCallLogs.created_at,
+		})
 		.from(apiCallLogs)
 		.where(whereClause)
 		.orderBy(desc(apiCallLogs.created_at))
 		.limit(pageSize)
 		.offset(offset);
 	
-	// 解析 JSON 字段
-	const items = results.map(log => ({
-		...log,
-		request_headers: log.request_headers ? JSON.parse(log.request_headers) : null,
-		request_body: log.request_body ? JSON.parse(log.request_body) : null,
-		response_body: log.response_body ? JSON.parse(log.response_body) : null,
-	}));
+	// 列表不返回 body，改为服务端提取摘要（与前端旧实现语义一致）
+	const items = results.map(log => {
+		const { request_body, ...rest } = log;
+		return {
+			...rest,
+			request_summary: extractRequestSummary(request_body),
+			request_headers: null,
+			request_body: null,
+			response_body: null,
+		};
+	});
 	
 	return { items, total, page, pageSize };
+}
+
+/**
+ * 从请求体中提取最后一条 user 消息作为列表摘要（与前端旧实现一致）。
+ * 列表接口不再返回完整 request_body，避免大 payload 拖慢页面。
+ */
+function extractRequestSummary(requestBody: string | null): string | null {
+	if (!requestBody) return null;
+	try {
+		const parsed = JSON.parse(requestBody) as { messages?: Array<{ role?: string; content?: unknown }> };
+		const messages = parsed.messages;
+		if (!Array.isArray(messages) || messages.length === 0) return null;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i]?.role !== 'user') continue;
+			const content = messages[i].content;
+			if (typeof content === 'string') {
+				return content.length > 80 ? content.slice(0, 80) + '...' : content;
+			}
+		}
+		return null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -558,44 +605,25 @@ export async function getApiStats(params: {
 	const results = await db
 		.select({
 			provider: apiCallLogs.provider,
-			model: apiCallLogs.model,
-			total_tokens: apiCallLogs.total_tokens,
-			duration_ms: apiCallLogs.duration_ms,
+			call_count: sql<number>`COUNT(*)`,
+			total_tokens: sql<number>`COALESCE(SUM(${apiCallLogs.total_tokens}), 0)`,
+			avg_duration_ms: sql<number>`COALESCE(AVG(COALESCE(${apiCallLogs.duration_ms}, 0)), 0)`,
+			models: sql<string>`GROUP_CONCAT(DISTINCT ${apiCallLogs.model})`,
 		})
 		.from(apiCallLogs)
-		.where(whereClause);
+		.where(whereClause)
+		.groupBy(apiCallLogs.provider)
+		// 保持旧实现的展示顺序：最近活跃的 provider 排前面
+		.orderBy(sql`MAX(${apiCallLogs.created_at}) DESC`);
 	
-	// 按 provider 聚合
-	const stats: Record<string, {
-		call_count: number;
-		total_tokens: number;
-		avg_duration_ms: number;
-		models: Set<string>;
-	}> = {};
-	
-	for (const log of results) {
-		const key = log.provider;
-		if (!stats[key]) {
-			stats[key] = {
-				call_count: 0,
-				total_tokens: 0,
-				avg_duration_ms: 0,
-				models: new Set(),
-			};
-		}
-		stats[key].call_count++;
-		stats[key].total_tokens += log.total_tokens || 0;
-		stats[key].avg_duration_ms += log.duration_ms || 0;
-		stats[key].models.add(log.model);
-	}
-	
-	// 计算平均值并转换为数组
-	return Object.entries(stats).map(([provider, stat]) => ({
-		provider,
-		call_count: stat.call_count,
-		total_tokens: stat.total_tokens,
-		avg_duration_ms: stat.call_count > 0 ? Math.round(stat.avg_duration_ms / stat.call_count) : 0,
-		models: Array.from(stat.models),
+	// 全部在 SQL 内聚合（配合覆盖索引），避免把整表日志拉回内存逐行累加。
+	// AVG(COALESCE(duration_ms,0)) 与旧实现（NULL 计 0 且计入分母）语义一致。
+	return results.map((row) => ({
+		provider: row.provider,
+		call_count: Number(row.call_count),
+		total_tokens: Number(row.total_tokens),
+		avg_duration_ms: Math.round(Number(row.avg_duration_ms)),
+		models: row.models ? row.models.split(',').filter(Boolean) : [],
 	}));
 }
 
