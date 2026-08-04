@@ -6,7 +6,7 @@
 
 ## ✨ 特性
 
-- 🔑 **统一 API Key 管理** — 集中管理 OpenAI、Claude、DeepSeek、智谱、月之暗面等多家服务商
+- 🔑 **统一 API Key 管理** — 集中管理 OpenAI、Claude、DeepSeek、智谱、月之暗面等多家服务商，支持一键复制完整 Key
 - 🔀 **智能路由分发** — 根据模型自动选择合适的服务商
 - 🔌 **服务商适配器** — 自动适配非 OpenAI 格式（如 Claude），调用方无感知
 - 🌊 **流式响应合并** — 服务端流式返回时自动合并为完整响应，token 统计准确
@@ -24,7 +24,7 @@
 ![API Key 管理](docs/screenshots/APIkey管理.png)
 
 ### 调用日志列表
-所有 API 调用一目了然，未读自动标红点，支持按服务商/模型筛选，hover 显示删除按钮。
+所有 API 调用一目了然，未读自动标红点，失败调用显示黄/红状态点，支持按服务商/模型筛选，hover 显示删除按钮。
 
 ![调用日志](docs/screenshots/APIlog.png)
 
@@ -55,7 +55,9 @@ pnpm run dev
 
 服务启动在 http://localhost:5000
 
-> � **Windows 用户**：脚本提供 PowerShell 版本，会自动检查并释放被占用的 5000 端口。详见 `scripts/dev.ps1` / `scripts/build.ps1` / `scripts/start.ps1`。
+> ⚠️ **Windows 用户**：请使用仓库根目录的 `dev.bat` 启动（已固定 Node 22 版本，避免原生模块版本不匹配），或手动确保 `node -v` 为 22.x 后再执行 `pnpm run dev`。脚本会自动检查并释放被占用的 5000 端口，详见 `scripts/dev.ps1` / `scripts/build.ps1` / `scripts/start.ps1`。
+
+> 💡 **首次启动**：首次访问时服务会自动为日志表创建覆盖索引（约 10 秒，一次性），之后接口即为最优速度。
 
 ### 第一次使用
 
@@ -87,13 +89,15 @@ curl -X POST http://localhost:5000/api/v1/chat/completions \
 | POST | `/api/keys` | 创建新 Key |
 | PUT | `/api/keys` | 更新 Key |
 | DELETE | `/api/keys?id=xxx` | 删除 Key |
+| GET | `/api/keys/reveal?id=xxx` | 按需获取完整 Key（列表接口保持脱敏，仅复制时调用） |
 
 ### 3. 调用日志
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/logs` | 日志列表（支持分页、按服务商/模型筛选） |
+| GET | `/api/logs` | 日志列表（支持分页、筛选；返回摘要，不携带完整 body） |
 | GET | `/api/logs?action=filters` | 获取筛选选项 |
+| GET | `/api/logs/[id]` | 单条日志详情（含完整请求/响应报文，按需加载） |
 | DELETE | `/api/logs?id=xxx` | 删除指定日志 |
 
 ### 4. 统计数据
@@ -257,7 +261,8 @@ Copy-Item data/api-gateway.db "data/backup-$date.db"
 调用日志会持续增长，建议定期清理：
 
 ```sql
-DELETE FROM api_call_logs WHERE created_at < strftime('%s','now','-30 days') * 1000;
+-- 注意：created_at 以“秒”存储
+DELETE FROM api_call_logs WHERE created_at < strftime('%s','now','-30 days');
 VACUUM;
 ```
 
@@ -272,7 +277,7 @@ SELECT
     MAX(duration_ms) AS max_ms,
     COUNT(*) AS calls
 FROM api_call_logs
-WHERE created_at > strftime('%s','now','-7 days') * 1000
+WHERE created_at > strftime('%s','now','-7 days')
 GROUP BY provider;
 ```
 
@@ -313,4 +318,4 @@ MIT License
 
 ---
 
-**最后更新**: 2026-05-25
+**最后更新**: 2026-08-04

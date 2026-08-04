@@ -105,6 +105,8 @@ data/
 *.db-shm
 *.db-wal
 drizzle/
-dev.bat
 skills-lock.json
 .agents/
+
+# Windows PowerShell 模块分析缓存（会在当前目录自动生成）
+Microsoft/
