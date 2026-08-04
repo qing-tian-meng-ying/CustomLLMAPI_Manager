@@ -13,6 +13,11 @@ import { existsSync } from 'fs';
 
 const dbPath = join(process.cwd(), 'data', 'api-gateway.db');
 
+interface TableColumnInfo {
+	name: string;
+	[key: string]: unknown;
+}
+
 if (!existsSync(dbPath)) {
 	console.error('❌ 数据库文件不存在:', dbPath);
 	console.log('💡 请先运行: pnpm tsx scripts/init-db.ts');
@@ -49,8 +54,8 @@ try {
 	console.log('✅ gateway_api_keys 表创建成功');
 	
 	// 2. 检查 api_keys 表是否有 priority 字段
-	const apiKeysInfo = db.prepare("PRAGMA table_info(api_keys)").all() as any[];
-	const hasPriority = apiKeysInfo.some((col: any) => col.name === 'priority');
+	const apiKeysInfo = db.prepare("PRAGMA table_info(api_keys)").all() as TableColumnInfo[];
+	const hasPriority = apiKeysInfo.some((col) => col.name === 'priority');
 	
 	if (!hasPriority) {
 		console.log('\n📋 为 api_keys 表添加 priority 字段...');
@@ -62,8 +67,8 @@ try {
 	}
 	
 	// 3. 检查 api_call_logs 表是否有 gateway_key_id 字段
-	const logsInfo = db.prepare("PRAGMA table_info(api_call_logs)").all() as any[];
-	const hasGatewayKeyId = logsInfo.some((col: any) => col.name === 'gateway_key_id');
+	const logsInfo = db.prepare("PRAGMA table_info(api_call_logs)").all() as TableColumnInfo[];
+	const hasGatewayKeyId = logsInfo.some((col) => col.name === 'gateway_key_id');
 	
 	if (!hasGatewayKeyId) {
 		console.log('\n📋 为 api_call_logs 表添加 gateway_key_id 字段...');

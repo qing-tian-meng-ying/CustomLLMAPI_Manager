@@ -42,6 +42,34 @@ export interface OpenAIResponse {
 	};
 }
 
+/**
+ * 上游服务商返回的原始响应。
+ * 各服务商字段差异较大（Anthropic 用 content/stop_reason，OpenAI 兼容用 choices/usage），
+ * 这里只声明网关实际使用的字段，其余统一按 unknown 处理。
+ */
+export interface UpstreamResponse {
+	id?: string;
+	model?: string;
+	stop_reason?: string;
+	content?: Array<{ type?: string; text?: string }>;
+	choices?: Array<{
+		index?: number;
+		message?: { role?: string; content?: string };
+		delta?: { content?: string };
+		finish_reason?: string;
+		[key: string]: unknown;
+	}>;
+	usage?: {
+		prompt_tokens?: number;
+		completion_tokens?: number;
+		total_tokens?: number;
+		input_tokens?: number;
+		output_tokens?: number;
+		[key: string]: unknown;
+	};
+	[key: string]: unknown;
+}
+
 // 适配器接口
 export interface ProviderAdapter {
 	// 转换请求格式
@@ -52,10 +80,10 @@ export interface ProviderAdapter {
 	};
 	
 	// 转换响应格式为 OpenAI 格式
-	transformResponse(response: unknown, originalRequest: OpenAIRequest): OpenAIResponse;
+	transformResponse(response: UpstreamResponse, originalRequest: OpenAIRequest): OpenAIResponse;
 	
 	// 提取 token 使用信息
-	extractTokens(response: unknown): {
+	extractTokens(response: UpstreamResponse): {
 		prompt_tokens: number;
 		completion_tokens: number;
 		total_tokens: number;
@@ -123,7 +151,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 		};
 	}
 	
-	transformResponse(response: any, originalRequest: OpenAIRequest): OpenAIResponse {
+	transformResponse(response: UpstreamResponse, originalRequest: OpenAIRequest): OpenAIResponse {
 		// Claude 响应格式转 OpenAI 格式
 		return {
 			id: response.id || `chatcmpl-${Date.now()}`,
@@ -148,7 +176,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 		};
 	}
 	
-	extractTokens(response: any) {
+	extractTokens(response: UpstreamResponse) {
 		return {
 			prompt_tokens: response.usage?.input_tokens || 0,
 			completion_tokens: response.usage?.output_tokens || 0,
@@ -202,12 +230,12 @@ export class ZhipuAdapter implements ProviderAdapter {
 		};
 	}
 	
-	transformResponse(response: any, originalRequest: OpenAIRequest): OpenAIResponse {
+	transformResponse(response: UpstreamResponse, _originalRequest: OpenAIRequest): OpenAIResponse {
 		// 智谱 AI 返回格式已经是 OpenAI 格式
-		return response as OpenAIResponse;
+		return response as unknown as OpenAIResponse;
 	}
 	
-	extractTokens(response: any) {
+	extractTokens(response: UpstreamResponse) {
 		return {
 			prompt_tokens: response.usage?.prompt_tokens || 0,
 			completion_tokens: response.usage?.completion_tokens || 0,
@@ -268,11 +296,11 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 		};
 	}
 	
-	transformResponse(response: any, originalRequest: OpenAIRequest): OpenAIResponse {
-		return response as OpenAIResponse;
+	transformResponse(response: UpstreamResponse, _originalRequest: OpenAIRequest): OpenAIResponse {
+		return response as unknown as OpenAIResponse;
 	}
 	
-	extractTokens(response: any) {
+	extractTokens(response: UpstreamResponse) {
 		return {
 			prompt_tokens: response.usage?.prompt_tokens || 0,
 			completion_tokens: response.usage?.completion_tokens || 0,

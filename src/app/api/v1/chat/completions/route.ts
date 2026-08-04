@@ -6,6 +6,7 @@ import {
 	countMessageTokens,
 	type OpenAIRequest,
 	type OpenAIMessage,
+	type UpstreamResponse,
 } from '@/lib/provider-adapters';
 
 // 支持的提供商及其默认模型
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
 	const startTime = Date.now();
 	let logId = '';
 	let requestBody: OpenAIRequest | null = null;
-	let gatewayKeyRecord: any = null;
+	let gatewayKeyRecord: Awaited<ReturnType<typeof validateGatewayKey>> | null = null;
 	
 	try {
 		// 可选：验证网关 API Key
@@ -228,8 +229,8 @@ export async function POST(req: NextRequest) {
 		const contentType = response.headers.get('content-type') || '';
 		const isStreamResponse = contentType.includes('text/event-stream') || contentType.includes('text/plain');
 		
-		let responseData: any;
-		let openaiResponse: any;
+		let responseData: UpstreamResponse = {};
+		let openaiResponse: unknown = null;
 		let tokens = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 		
 		// 如果是流式响应且客户端需要流式，拦截并收集完整内容
@@ -242,9 +243,9 @@ export async function POST(req: NextRequest) {
 			const decoder = new TextDecoder();
 			
 			// 用于收集完整响应
-			let collectedChunks: any[] = [];
+			const collectedChunks: UpstreamResponse[] = [];
 			let collectedContent = '';
-			let lastCompleteData: any = null;
+			let lastCompleteData: UpstreamResponse | null = null;
 			
 			// 创建转换流
 			const stream = new ReadableStream({
@@ -386,9 +387,9 @@ export async function POST(req: NextRequest) {
 				
 				// 从 SSE 中提取并合并所有消息
 				const lines = responseText.split('\n');
-				const chunks: any[] = [];
+				const chunks: UpstreamResponse[] = [];
 				let mergedContent = '';
-				let lastCompleteData: any = null;
+				let lastCompleteData: UpstreamResponse | null = null;
 				
 				console.log(`📋 解析 ${lines.length} 行 SSE 数据...`);
 				

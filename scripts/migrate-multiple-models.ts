@@ -16,6 +16,35 @@ const projectRoot = join(__dirname, '..');
 
 const dbPath = join(projectRoot, 'data', 'api-gateway.db');
 
+interface TableColumnInfo {
+	name: string;
+	[key: string]: unknown;
+}
+
+interface LegacyApiKeyRow {
+	id: string;
+	name: string;
+	provider: string;
+	base_url: string;
+	api_key: string;
+	model: string;
+	is_active: number;
+	is_default: number;
+	priority: number;
+	created_at: number;
+	updated_at: number | null;
+}
+
+interface MigratedApiKeyRow {
+	id: string;
+	name: string;
+	provider: string;
+	models: string;
+	is_active: number;
+	is_default: number;
+	priority: number;
+}
+
 console.log('📦 开始迁移：支持多模型配置\n');
 console.log('=' .repeat(80));
 
@@ -31,8 +60,8 @@ try {
 	console.log('\n1️⃣ 检查当前表结构...');
 	
 	// 检查是否已经有 models 字段
-	const tableInfo = db.prepare("PRAGMA table_info(api_keys)").all() as any[];
-	const hasModelsField = tableInfo.some((col: any) => col.name === 'models');
+	const tableInfo = db.prepare("PRAGMA table_info(api_keys)").all() as TableColumnInfo[];
+	const hasModelsField = tableInfo.some((col) => col.name === 'models');
 	
 	if (hasModelsField) {
 		console.log('✅ models 字段已存在，跳过迁移');
@@ -49,7 +78,7 @@ try {
 	const existingKeys = db.prepare(`
 		SELECT id, name, provider, base_url, api_key, model, is_active, is_default, priority, created_at, updated_at
 		FROM api_keys
-	`).all();
+	`).all() as LegacyApiKeyRow[];
 	
 	console.log(`✅ 找到 ${existingKeys.length} 条现有配置`);
 	
@@ -82,7 +111,7 @@ try {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`);
 	
-	for (const key of existingKeys as any[]) {
+	for (const key of existingKeys) {
 		// 将单个 model 转换为数组
 		const models = JSON.stringify([key.model]);
 		
@@ -142,9 +171,9 @@ try {
 		SELECT id, name, provider, models, is_active, is_default, priority
 		FROM api_keys
 		ORDER BY priority DESC, is_default DESC, created_at ASC
-	`).all();
+	`).all() as MigratedApiKeyRow[];
 	
-	newKeys.forEach((key: any, index: number) => {
+	newKeys.forEach((key, index: number) => {
 		const models = JSON.parse(key.models);
 		const badges = [];
 		if (key.is_default) badges.push('默认');
