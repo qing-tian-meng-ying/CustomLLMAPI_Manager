@@ -48,6 +48,7 @@ import {
 	Edit2,
 	Cpu,
 	Copy,
+	CheckCircle2,
 	Star,
 	StarOff,
 	X,
@@ -112,8 +113,8 @@ export default function KeysPage() {
 	const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
 	const [deleting, setDeleting] = useState(false);
 
-  const { copy: copyBaseUrl } = useCopy();
-  const { copy: copyApiKey } = useCopy();
+  const { copy: copyBaseUrl, copied: copiedBaseUrl } = useCopy();
+  const { copy: copyApiKey, copied: copiedApiKey } = useCopy();
 
 	useEffect(() => {
 		fetchKeys();
@@ -559,7 +560,11 @@ export default function KeysPage() {
                                   aria-label="复制 API Key"
                                   title="复制完整 API Key"
                                 >
-                                  <Copy className="h-3 w-3" />
+                                  {copiedApiKey ? (
+                                    <CheckCircle2 className="h-3 w-3 text-primary" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
                                 </button>
                               </div>
                             </div>
@@ -574,7 +579,11 @@ export default function KeysPage() {
 																	className="text-muted-foreground transition-colors hover:text-foreground"
 																	aria-label="复制 Base URL"
 																>
-																	<Copy className="h-3 w-3" />
+																	{copiedBaseUrl ? (
+																		<CheckCircle2 className="h-3 w-3 text-primary" />
+																	) : (
+																		<Copy className="h-3 w-3" />
+																	)}
 																</button>
 															</div>
 														</div>

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { AppShell } from '@/components/app-shell';
 import { DevInspector } from '@/components/dev-inspector';
+import { Toaster } from '@/components/ui/sonner';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({
       <body className="antialiased">
         {isDev && <DevInspector />}
         <AppShell>{children}</AppShell>
+        <Toaster richColors position="top-center" />
       </body>
     </html>
   );
