@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
 	Select,
@@ -25,6 +26,7 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { PageShell } from '@/components/page-shell';
+import { LogCompareDialog } from '@/components/log-compare';
 import { useCopy } from '@/hooks/use-copy';
 import { formatFullDate } from '@/lib/format';
 import {
@@ -40,6 +42,7 @@ import {
 	Filter,
 	X,
 	Trash2,
+	GitCompare,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -166,6 +169,11 @@ export default function LogsPage() {
 	const [deleteTarget, setDeleteTarget] = useState<ApiLog | null>(null);
 	const [deleting, setDeleting] = useState(false);
 
+	// 对比模式：任意选择 2 条日志进行 JSON 对比
+	const [compareMode, setCompareMode] = useState(false);
+	const [selectedLogs, setSelectedLogs] = useState<ApiLog[]>([]);
+	const [compareOpen, setCompareOpen] = useState(false);
+
 	// 跳页输入
 	const [jumpInput, setJumpInput] = useState('');
 
@@ -287,6 +295,7 @@ export default function LogsPage() {
 			toast.success('删除成功');
 			// 从列表中移除
 			setLogs(prev => prev.filter(l => l.id !== deleteTarget.id));
+			setSelectedLogs(prev => prev.filter(l => l.id !== deleteTarget.id));
 			setTotal(t => Math.max(0, t - 1));
 			setDeleteTarget(null);
 		} catch (error) {
@@ -295,6 +304,38 @@ export default function LogsPage() {
 		} finally {
 			setDeleting(false);
 		}
+	};
+
+	/**
+	 * 对比模式：勾选/取消勾选日志（最多 2 条）
+	 */
+	const toggleSelectLog = (log: ApiLog) => {
+		setSelectedLogs(prev => {
+			if (prev.some(x => x.id === log.id)) {
+				return prev.filter(x => x.id !== log.id);
+			}
+			if (prev.length >= 2) {
+				toast.error('最多选择 2 条日志进行对比');
+				return prev;
+			}
+			return [...prev, log];
+		});
+	};
+
+	/**
+	 * 打开对比弹窗（需已选择 2 条）
+	 */
+	const openCompare = () => {
+		if (selectedLogs.length < 2) return;
+		setCompareOpen(true);
+	};
+
+	/**
+	 * 切换对比模式：退出时清空选择
+	 */
+	const toggleCompareMode = () => {
+		if (compareMode) setSelectedLogs([]);
+		setCompareMode(!compareMode);
 	};
 
 	const hasActiveFilters = filterProvider || filterModel;
@@ -320,6 +361,19 @@ export default function LogsPage() {
 			icon={FileText}
 			actions={
 				<>
+					<Button
+						variant={compareMode ? 'default' : 'outline'}
+						size="sm"
+						onClick={toggleCompareMode}
+					>
+						<GitCompare className="mr-1 h-4 w-4" />
+						对比
+						{selectedLogs.length > 0 && (
+							<span className="ml-1 rounded-full bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none">
+								{selectedLogs.length}/2
+							</span>
+						)}
+					</Button>
 					<Button
 						variant={showFilters ? 'default' : 'outline'}
 						size="sm"
@@ -426,13 +480,30 @@ export default function LogsPage() {
 						{logs.map((log) => {
 							const summary = log.request_summary || '';
 							const isUnread = !readIds.has(log.id);
+							const isSelected = compareMode && selectedLogs.some(x => x.id === log.id);
 							return (
 								<div
 									key={log.id}
-									className="group relative cursor-pointer rounded-lg border bg-card px-4 py-3 transition-all hover:border-foreground/20 hover:shadow-sm"
-									onClick={() => viewDetails(log)}
+									className={`group relative cursor-pointer rounded-lg border bg-card px-4 py-3 transition-all hover:border-foreground/20 hover:shadow-sm ${
+										isSelected ? 'border-primary ring-1 ring-primary' : ''
+									}`}
+									onClick={() => (compareMode ? toggleSelectLog(log) : viewDetails(log))}
 								>
-                  <div className="flex items-start justify-between gap-4">
+									<div className="flex items-center gap-3">
+										{compareMode && (
+											<div
+												className="flex-shrink-0"
+												onClick={(e) => e.stopPropagation()}
+												role="presentation"
+											>
+												<Checkbox
+													checked={isSelected}
+													onCheckedChange={() => toggleSelectLog(log)}
+													aria-label={`选择日志 ${log.model}`}
+												/>
+											</div>
+										)}
+                  <div className="flex items-start justify-between gap-4 flex-1 min-w-0">
                     <div className="flex-1 min-w-0">
                   <div className="mb-1 flex items-center gap-2">
                       {/* 状态点：只对非 2xx 显示（成功请求不显示，减少噪音） */}
@@ -499,6 +570,7 @@ export default function LogsPage() {
 										>
 											<Trash2 className="h-4 w-4" />
 										</button>
+									</div>
 									</div>
 								</div>
 							);
@@ -623,6 +695,53 @@ export default function LogsPage() {
 						</div>
 					)}
 				</div>
+			)}
+
+			{/* 对比模式底部操作条 */}
+			{compareMode && selectedLogs.length > 0 && (
+				<div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
+					<Card className="shadow-lg">
+						<CardContent className="flex items-center gap-3 px-4 py-3">
+							<span className="text-sm font-medium tabular-nums text-muted-foreground">
+								已选 {selectedLogs.length}/2
+							</span>
+							{selectedLogs.map(log => (
+								<Badge
+									key={log.id}
+									variant="outline"
+									className="max-w-[200px] gap-1 font-mono"
+								>
+									<span className="truncate">
+										{log.provider} · {log.model}
+									</span>
+								</Badge>
+							))}
+							{selectedLogs.length === 1 && (
+								<span className="text-xs text-muted-foreground">
+									再选择 1 条日志即可对比
+								</span>
+							)}
+							<Button size="sm" disabled={selectedLogs.length < 2} onClick={openCompare}>
+								<GitCompare className="mr-1 h-4 w-4" />
+								开始对比
+							</Button>
+							<Button size="sm" variant="ghost" onClick={() => setSelectedLogs([])}>
+								<X className="mr-1 h-4 w-4" />
+								清除
+							</Button>
+						</CardContent>
+					</Card>
+				</div>
+			)}
+
+			{/* JSON 对比弹窗 */}
+			{compareOpen && selectedLogs.length === 2 && (
+				<LogCompareDialog
+					open={compareOpen}
+					onOpenChange={setCompareOpen}
+					logA={selectedLogs[0]}
+					logB={selectedLogs[1]}
+				/>
 			)}
 
 			{/* 详情弹窗 - 紧凑型设计 */}

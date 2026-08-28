@@ -4,6 +4,7 @@
 node_modules/
 .pnp
 .pnp.js
+.pnpm-store/
 
 # Production build
 dist/
@@ -92,12 +93,20 @@ Desktop.ini
 
 # TypeScript
 *.tsbuildinfo
+next-env.d.ts
 
 # Misc
 .vercel
 .turbo
 
 .coze-logs
+
+# AI agent tooling（本机 junction 符号链接和本地状态，勿提交）
+.claude/
+.codex/
+.gemini/
+.kimi/
+.cat-cafe/
 
 # SQLite Database
 data/
